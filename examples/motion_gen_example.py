@@ -141,7 +141,7 @@ def demo_motion_gen_simple():
 def demo_motion_gen_mesh():
     PLOT = False
     tensor_args = TensorDeviceType()
-    world_file = "collision_mesh_scene.yml"
+    world_file = "collision_table.yml"
     robot_file = "franka.yml"
     motion_gen_config = MotionGenConfig.load_from_robot_config(
         robot_file,
@@ -177,11 +177,11 @@ def demo_motion_gen_mesh():
         plot_traj(traj.cpu().numpy())
 
 
-def demo_motion_gen(js=False):
+def demo_motion_gen(index, js=False):
     # Standard Library
     PLOT = True
     tensor_args = TensorDeviceType()
-    world_file = "collision_table.yml"
+    world_file = f'/home/yuzhen/Desktop/CROWS_paper_baselines/csv_environment_sources/yaml_result/yaml_version_sparrow_world{index}.yml'##"collision_table.yml"
     robot_file = "kinova_gen3.yml"
     motion_gen_config = MotionGenConfig.load_from_robot_config(
         robot_file,
@@ -208,14 +208,30 @@ def demo_motion_gen(js=False):
         JointState.from_position(retract_cfg.view(1, -1))
     )
 
-    retract_pose = Pose(state.ee_pos_seq.squeeze(), quaternion=state.ee_quat_seq.squeeze())
+    #get the start and goal position: 
+    import pandas as pd
+    csv_file_path = f'/home/yuzhen/Desktop/CROWS_paper_baselines/csv_environment_sources/kinova_scenarios/scene_{index:03}.csv'
+    data = pd.read_csv(csv_file_path, header=None)
+    start_state_data = data.iloc[0].tolist()
+    goal_state_data = data.iloc[1].tolist()
+
     start_state = JointState.from_position(retract_cfg.view(1, -1))
     goal_state = start_state.clone()
 
-    # for i in range (7):
-    #     start_state.position[0, i] = 0
-    start_state.position[0, 0] += 0.25
-    goal_state.position[0,0] += 2.75
+    for i in range (7):
+        start_state.position[0,i] = start_state_data[i]
+        goal_state.position[0,i] = goal_state_data[i]
+
+
+    retract_pose = Pose(state.ee_pos_seq.squeeze(), quaternion=state.ee_quat_seq.squeeze())
+    ##old code:
+    # start_state = JointState.from_position(retract_cfg.view(1, -1))
+    # goal_state = start_state.clone()
+
+    # # for i in range (7):
+    # #     start_state.position[0, i] = 0
+    # start_state.position[0, 0] += 0.25
+    # goal_state.position[0,0] += 2.75
    
  
    
@@ -228,7 +244,7 @@ def demo_motion_gen(js=False):
         result = motion_gen.plan_single_js(
             start_state,
             goal_state,
-            MotionGenPlanConfig(max_attempts=1, time_dilation_factor=0.5)
+            MotionGenPlanConfig(max_attempts=10, time_dilation_factor=0.5,timeout = 2) #yuzhen modified
         )
     else:
         result = motion_gen.plan_single(
@@ -251,7 +267,7 @@ def demo_motion_gen(js=False):
         result.optimized_dt,
     )
 
-    result_filename = 'curobo_trajectory.mat'
+    result_filename = f'matlab_mat_result/curobo_trajectory{index}.mat'
     # result_filename = 'comparison-results/curobo_trajectory_'+str(obs_num)+'_'+str(test_id)+'.mat'
     print("start to save the matlab file")
     try:
@@ -259,7 +275,7 @@ def demo_motion_gen(js=False):
                     {'if_success': result.success.cpu().numpy(), \
                     'q': result.optimized_plan.position.cpu().numpy(), \
                     'velocity': result.optimized_plan.velocity.cpu().numpy(), \
-                    'solve_time': result.solve_time, \
+                    'total_time': result.total_time, \
                     'start_state': start_state.position.cpu().numpy(), \
                     'goal_state': goal_state.position.cpu().numpy()})
         print(f"File saved successfully: {result_filename}")
@@ -280,11 +296,30 @@ def demo_motion_gen(js=False):
 
     print("yuzhen test, in order to see the result")
     print(f'if_success: {result.success.cpu().numpy()}')
-    print(f'q final location: {(result.optimized_plan.position.cpu().numpy())[99]}') #[trajopt_tsteps,7]
+    # print(f'q final location: {(result.optimized_plan.position.cpu().numpy())[99]}') #[trajopt_tsteps,7]
 
-    print(f'the size of the trajectory is: : {(result.optimized_plan.position).size()}') #[trajopt_tsteps,7]
-    print(f"the size of the velocity of each joint at each timespot is: {result.optimized_plan.velocity.size()}") #[trajopt_tsteps,7]
-    print(f"the solving time is: {result.solve_time}")
+    # print(f'the size of the trajectory is: : {(result.optimized_plan.position).size()}') #[trajopt_tsteps,7]
+    # print(f"the size of the velocity of each joint at each timespot is: {result.optimized_plan.velocity.size()}") #[trajopt_tsteps,7]
+    print(f"the total_time is: {result.total_time}")
+
+    scene_name = f"scense{index}"
+
+    if result.success.cpu().numpy() == True:
+        data = {
+            "if_success" : result.success.cpu().numpy().item(),
+            "scense_name" : scene_name,
+            "initial_position" : start_state.position.cpu().numpy().tolist(), 
+            "final_position" : goal_state.position.cpu().numpy().tolist(),
+            "trajectory": result.optimized_plan.position.tolist(),
+            "total_time" : result.total_time
+        }
+
+    else:
+        data = {
+            "if_success" : result.success.cpu().numpy().item()
+        }
+    
+    return data
                   
 
 def demo_motion_gen_debug():
@@ -521,7 +556,15 @@ def demo_motion_gen_batch_env(n_envs: int = 10):
 
 if __name__ == "__main__":
     setup_curobo_logger("error")
-    demo_motion_gen(js=True) # origion is False
+    results = []
+    for i in range (1,15):
+        data = demo_motion_gen(i,js=True) # origion is False
+        results.append(data)
+    # 将所有数据写入JSON文件
+    import json
+    with open('matlab_mat_result/all_scense_results.json', 'w') as file:
+        json.dump(results, file, indent=4)
+    
     # demo_motion_gen_simple()
     # demo_motion_gen_batch()
     # demo_motion_gen_goalset()

@@ -2060,16 +2060,23 @@ class MotionGen(MotionGenConfig):
         force_graph = plan_config.enable_graph
         valid_query = True
         if plan_config.check_start_validity:
+            print("start to check the start_state")
             valid_query, status = self.check_start_state(start_state)
             if not valid_query:
+                print("start position is invalide")
                 result = MotionGenResult(
                     success=torch.as_tensor([False], device=self.tensor_args.device),
                     valid_query=valid_query,
                     status=status,
                 )
                 return result
+            
+        print("start position is valide")
 
+        print("max_attempts num is: ", plan_config.max_attempts)
         for n in range(plan_config.max_attempts):
+            
+            print("n index is: ", n) 
             result = self._plan_js_from_solve_state(
                 solve_state, start_state, goal_state, plan_config=plan_config
             )
@@ -2087,10 +2094,13 @@ class MotionGen(MotionGenConfig):
                 plan_config.enable_graph = False
 
             if result.success.item():
+                print("break because the result.success = true")
                 break
             if not result.valid_query:
+                print("break because the result.valid_query is false")
                 break
             if time.time() - start_time > plan_config.timeout:
+                print("break because the planing time is too long")
                 break
 
         result.graph_time = time_dict["graph_time"]
